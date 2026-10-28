@@ -71,13 +71,17 @@ class Proxy:
                  status_extra=""):
         self.pki = pki
         self.ports = {k: free_port() for k in ("ldap", "ldaps", "ro", "starttls", "denied", "status")}
-        self.log = str(tmp_path / "proxy.log")
+        # Forward slashes only: in a TOML "..." string a Windows backslash is an
+        # escape (e.g. "C:\\Users" -> "\\U" unicode escape), which breaks the config.
+        self.log = (tmp_path / "proxy.log").as_posix()
+        self.stderr_path = str(tmp_path / "proxy.stderr")
+        pki_p = str(pki).replace("\\", "/")
         servers = ""
         for host_port, sname in [("127.0.0.1:%d" % d.port, d.cert + ".test.local") for d in dcs] + list(extra_backends):
             host, port = host_port.rsplit(":", 1)
             servers += '[[backends.server]]\nhost = "%s"\nport = %s\nserver_name = "%s"\n\n' % (host, port, sname)
         self.cfg_path = str(tmp_path / "config.toml")
-        with open(self.cfg_path, "w") as f:
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
             f.write(f"""
 [service]
 log_file = "{self.log}"
@@ -119,13 +123,13 @@ mode = "ldaps"
 allowed_clients = ["10.0.0.0/8"]
 
 [server_tls]
-pfx_file = "{pki}/proxy.pfx"
-pfx_password_file = "{pki}/proxy.pfx.pass"
+pfx_file = "{pki_p}/proxy.pfx"
+pfx_password_file = "{pki_p}/proxy.pfx.pass"
 
 [backends]
 strategy = "{strategy}"
 connect_timeout = 2
-ca_sources = ["{pki}/ca.pem"]
+ca_sources = ["{pki_p}/ca.pem"]
 
 {servers}
 [health]
@@ -143,17 +147,18 @@ port = {self.ports['status']}
         self.proc = None
 
     def start(self):
+        self._stderr = open(self.stderr_path, "wb")
         self.proc = subprocess.Popen([PY, "-m", "cloakbind", "run", "--config", self.cfg_path],
-                                     cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                     cwd=ROOT, stdout=subprocess.DEVNULL, stderr=self._stderr)
         deadline = time.time() + 15
         while time.time() < deadline:
             try:
                 self.status()
                 return self
             except Exception:
-                assert self.proc.poll() is None, "proxy exited:\n" + self.read_log()
+                assert self.proc.poll() is None, "proxy exited:\n" + self.read_log() + self.read_stderr()
                 time.sleep(0.2)
-        raise AssertionError("proxy did not start:\n" + self.read_log())
+        raise AssertionError("proxy did not start:\n" + self.read_log() + self.read_stderr())
 
     def status(self):
         try:
@@ -173,8 +178,15 @@ port = {self.ports['status']}
 
     def read_log(self):
         try:
-            with open(self.log) as f:
+            with open(self.log, encoding="utf-8", errors="replace") as f:
                 return f.read()
+        except OSError:
+            return ""
+
+    def read_stderr(self):
+        try:
+            with open(self.stderr_path, encoding="utf-8", errors="replace") as f:
+                return "\n--- proxy stderr ---\n" + f.read()
         except OSError:
             return ""
 
@@ -185,6 +197,9 @@ port = {self.ports['status']}
                 self.proc.wait(5)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait()
+        if getattr(self, "_stderr", None):
+            self._stderr.close()   # Windows can't delete the temp dir while it's open
 
     def server(self, listener="ldaps"):
         tls = Tls(ca_certs_file=os.path.join(self.pki, "ca.pem"), validate=ssl.CERT_REQUIRED,
@@ -679,6 +694,6 @@ def test_events_record_dc_down_and_up(stack, pki):
 
 def test_dashboard_script_never_injects_html():
     """Account names and errors come from clients: the page must only ever set text."""
-    js = open(os.path.join(ROOT, "cloakbind", "dashboard", "dashboard.js")).read()
+    js = open(os.path.join(ROOT, "cloakbind", "dashboard", "dashboard.js"), encoding="utf-8").read()
     for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval("):
         assert bad not in js
