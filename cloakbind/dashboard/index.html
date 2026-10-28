@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloakbind</title>
+<link rel="stylesheet" href="dashboard.css">
+<script src="dashboard.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="ident">
+    <h1>Cloakbind <span id="host" class="host"></span></h1>
+    <p class="sub">Legacy LDAP in, LDAPS to the domain controllers</p>
+  </div>
+  <p class="updated" id="updated" aria-live="polite">Connecting…</p>
+</header>
+
+<main>
+  <section class="status" id="status" data-level="unknown" aria-live="polite">
+    <p class="status-line" id="status-line">Reading proxy status…</p>
+    <p class="status-detail" id="status-detail"></p>
+  </section>
+
+  <section class="route" aria-label="Connection path">
+    <div class="node clients">
+      <h2>Clients</h2>
+      <ul class="listeners" id="listeners"></ul>
+      <p class="sessions"><span id="sessions" class="num">0</span> open sessions</p>
+    </div>
+
+    <div class="leg leg-in" aria-hidden="true"><span></span></div>
+
+    <div class="node proxy">
+      <h2 id="proxy-name">Proxy</h2>
+      <p id="proxy-meta" class="meta"></p>
+    </div>
+
+    <ul class="dcs" id="dcs" aria-label="Domain controllers"></ul>
+  </section>
+
+  <section class="activity" aria-labelledby="activity-h">
+    <div class="activity-head">
+      <h2 id="activity-h">Recent activity</h2>
+      <div class="filters" role="group" aria-label="Filter activity">
+        <button type="button" data-filter="all" aria-pressed="true">Everything</button>
+        <button type="button" data-filter="problems" aria-pressed="false">Problems</button>
+        <button type="button" data-filter="dc" aria-pressed="false">DC changes</button>
+      </div>
+    </div>
+    <p class="masked-note" id="masked-note" hidden>
+      Account names are hidden. To show them, set <code>show_account_names = true</code> under
+      <code>[status]</code> in <code>config.toml</code> and restart the service.
+    </p>
+    <div class="table-wrap">
+      <table id="events">
+        <thead>
+          <tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Account</th>
+              <th scope="col">Client</th><th scope="col">Domain controller</th><th scope="col">Detail</th></tr>
+        </thead>
+        <tbody id="events-body"></tbody>
+      </table>
+      <p class="empty" id="events-empty" hidden>No activity yet. Sign-ins and DC changes appear here as they happen.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p id="foot"></p>
+  <p>Raw data: <a href="./">status JSON</a>, <a href="events">events JSON</a>. The log file in
+  C:\ProgramData\Cloakbind\logs keeps the full history; this page holds recent events in memory only.</p>
+</footer>
+</body>
+</html>

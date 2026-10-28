@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloakbind"
+version = "1.4.0"
+description = "Cloakbind: legacy LDAP to verified LDAPS failover proxy for Active Directory (Twisted + ldaptor)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Visham Ramkelawan" }]
+keywords = ["ldap", "ldaps", "active-directory", "proxy", "ldap-signing", "twisted", "ldaptor"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: System Administrators",
+    "Operating System :: Microsoft :: Windows :: Windows Server",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Systems Administration :: Authentication/Directory :: LDAP",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "ldaptor>=21.2.0",
+    "Twisted[tls]>=24.3.0",
+    "cryptography>=42",
+    "pyOpenSSL>=24.0",
+    "pywin32>=306; sys_platform == 'win32'",
+    "twisted-iocpsupport>=1.0.4; sys_platform == 'win32'",   # IOCP reactor (no 512-socket limit)
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "ldap3>=2.9"]
+
+[project.scripts]
+cloakbind = "cloakbind.__main__:main"
+
+[tool.setuptools]
+packages = ["cloakbind"]
+
+[tool.setuptools.package-data]
+cloakbind = ["dashboard/*"]

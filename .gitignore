@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Local configs, keys and logs: never commit real ones
+config.toml
+*.pfx
+*.pfx.pass
+*.key
+*.log
+logs/
+certs/
+wheels/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,9 @@
+# Exact versions the test suite passed with (Python 3.13). Use with:
+#   python -m pip install -r requirements.txt
+ldaptor==21.2.0
+Twisted[tls]==26.4.0
+cryptography==50.0.1
+pyOpenSSL==26.4.0
+service-identity==26.1.0
+pywin32>=306; sys_platform == "win32"
+twisted-iocpsupport>=1.0.4; sys_platform == "win32"

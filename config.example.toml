@@ -1,0 +1,174 @@
+# Cloakbind configuration (legacy plain LDAP in -> verified LDAPS to domain controllers)
+# Installed location: C:\ProgramData\Cloakbind\config.toml
+# Relative paths are relative to this file. Validate changes with:
+#   python -m cloakbind check
+# then restart the service:  Restart-Service Cloakbind
+
+[service]
+log_file = "logs\\cloakbind.log"   # rotated daily
+log_level = "INFO"                   # DEBUG logs every session open/close
+log_retention_days = 30
+max_connections = 1000               # concurrent client sessions, all listeners
+max_connections_per_client = 0       # per client IP; 0 = unlimited
+first_message_timeout = 30           # seconds a new client gets to send its first LDAP request
+max_request_size = 4194304           # bytes; largest request accepted from a client (4 MB)
+max_response_size = 67108864         # bytes; largest single message accepted from a DC (64 MB)
+event_log = true                     # WARNING/ERROR also to Application log (source "Cloakbind")
+reactor = "auto"                     # auto = IOCP on Windows (no 512-socket limit); "select" to fall back
+
+# ---------------------------------------------------------------- listeners
+# Why this exists: Windows Server 2025 DCs require LDAP signing by default, so
+# legacy applications that do a plain (unsigned) simple bind on port 389 get
+# "strongerAuthRequired". Point those apps at this proxy instead: they keep
+# talking plain LDAP on 389 to the proxy, and the proxy talks LDAPS (636, TLS,
+# verified certificates) to the DCs, which satisfies the signing requirement.
+#
+#   legacy app --LDAP 389--> proxy --LDAPS 636--> DC1 / DC2 / ...
+#
+# mode = "ldap"      plain LDAP (default port 389). For legacy apps. If
+#                    [server_tls] is configured, StartTLS is also offered to
+#                    clients that can use it. Because passwords from these apps
+#                    are in clear between app and proxy, allowed_clients must
+#                    list the app servers (or bind to 127.0.0.1, or set
+#                    allow_any_client = true deliberately). Keep the proxy close
+#                    to the apps (same subnet/VLAN, or on the app server itself).
+# mode = "starttls"  plain port that REQUIRES StartTLS before any password bind.
+# mode = "ldaps"     TLS from the first byte (port 636 style). Needs [server_tls].
+#
+# Other per-listener options:
+# allowed_clients: IPs/CIDRs allowed to connect.
+# read_only: allow only Bind, Search, Compare, Abandon, Unbind, StartTLS and
+#            the WhoAmI / AD fast-bind extended operations; refuse the rest.
+# reject_unauthenticated_bind (default true): refuse "DN + empty password"
+#            binds, which AD treats as anonymous success and which can let
+#            badly written apps log anyone in.
+#
+# NOTE: the proxy cannot run ON a domain controller when it listens on 389 or
+# 636 (the DC already owns those ports). Use a member server.
+
+# Deployment: ONE central proxy server (LDAPPROXY01). Application servers and
+# manufacturing/medical panels anywhere on the network point at LDAPPROXY01 instead of
+# a DC. The proxy forwards to the DCs over LDAPS 636 (see [backends] below).
+#
+#   app servers / manufacturing & medical panels
+#        |  plain LDAP, TCP 9001 (or 10389)
+#        v
+#   LDAPPROXY01  --LDAPS, TCP 636-->  DC1 / DC2 / ...
+#
+# Ports: 9001 and 10389 are example plain-LDAP ports (10389 is the port
+# used by the ldaptor cookbook example). Both are plain LDAP listeners with the
+# same behaviour. (The cookbook's "forward to localhost:8080" is only its demo
+# backend; here the backend is always the DCs on 636.)
+#
+# allowed_clients: list EVERY network that will use the proxy - the
+# application server subnets AND the manufacturing / panel VLANs. Anything not
+# listed is refused (and logged) before it can send a password.
+
+[[listener]]
+name = "legacy-ldap-9001"
+bind = "0.0.0.0"
+port = 9001
+mode = "ldap"
+allowed_clients = [
+    "10.20.30.0/24",     # application servers  (replace)
+    "10.40.50.0/24",     # manufacturing/medical panels / HMI VLAN  (replace)
+]
+
+[[listener]]
+name = "legacy-ldap-10389"
+bind = "0.0.0.0"
+port = 10389
+mode = "ldap"
+allowed_clients = [
+    "10.20.30.0/24",     # application servers  (replace)
+    "10.40.50.0/24",     # manufacturing/medical panels / HMI VLAN  (replace)
+]
+
+# Optional: a panel/app that cannot change its port from the LDAP default
+# [[listener]]
+# name = "legacy-ldap-389"
+# bind = "0.0.0.0"
+# port = 389
+# mode = "ldap"
+# allowed_clients = ["10.40.50.0/24"]
+
+# Optional: also offer LDAPS on 636 for clients that can do TLS (needs [server_tls])
+# [[listener]]
+# name = "ldaps"
+# bind = "0.0.0.0"
+# port = 636
+# mode = "ldaps"
+# allowed_clients = ["10.0.0.0/8"]
+
+# ---------------------------------------------------------------- proxy certificate (optional)
+# Only needed for "ldaps"/"starttls" listeners, or to offer StartTLS on the
+# "ldap" listener. Its SAN must include the name clients use to reach the
+# proxy. Install-Cloakbind.ps1 -CertThumbprint exports it into these files.
+# [server_tls]
+# pfx_file = "certs\\proxy.pfx"
+# pfx_password_file = "certs\\proxy.pfx.pass"
+# min_tls = "1.2"
+# or PEM instead of PFX:
+# cert_file = "certs\\proxy.crt"   # leaf first, then intermediates
+# key_file  = "certs\\proxy.key"   # unencrypted PKCS#8/PKCS#1
+
+# ---------------------------------------------------------------- domain controllers
+# strategy = "failover"     always use the first healthy DC in the list order
+#                           (put the local-site DCs first)
+# strategy = "round_robin"  spread new sessions across all healthy DCs
+#
+# ca_sources: where to get trusted CAs for verifying DC certificates.
+#   A path to a PEM file holding your enterprise CA chain (issuing CA + root),
+#     or a single DER .cer root - RECOMMENDED. Only certificates from your own
+#     PKI can then vouch for a DC. README "Install" step 4 shows how to export
+#     the chain a DC presents into certs\ca-chain.pem.
+#   "windows" = the server's LocalMachine Trusted Root + Intermediate stores
+#     (honours the Disallowed store and per-certificate purpose restrictions,
+#     but also trusts every public root CA on the box).
+# Certificate and hostname verification cannot be turned off.
+[backends]
+strategy = "failover"
+connect_timeout = 5
+ca_sources = ["certs\\ca-chain.pem"]
+# ca_sources = ["windows"]
+min_tls = "1.2"
+
+[[backends.server]]
+host = "dc1.corp.example.com"
+port = 636
+
+[[backends.server]]
+host = "dc2.corp.example.com"
+port = 636
+
+# Add as many as you like. If you must connect by IP, set server_name to the
+# name on the DC's certificate:
+# [[backends.server]]
+# host = "10.0.0.13"
+# server_name = "dc3.corp.example.com"
+
+# ---------------------------------------------------------------- health checks
+# Every interval seconds each DC gets a TLS connect + anonymous RootDSE read.
+# A DC reporting isSynchronized=FALSE (e.g. freshly promoted, still doing its
+# initial replication) is treated as down.
+[health]
+interval = 15
+timeout = 5
+rise = 2                     # successes needed to bring a DC back
+fall = 2                     # failures needed to take a DC out
+cert_expiry_warn_days = 30   # warn when a DC's or the proxy's cert is close to expiring
+
+# ---------------------------------------------------------------- status page and dashboard
+# http://127.0.0.1:8636/           JSON health (HTTP 503 when no DC is healthy)
+# http://127.0.0.1:8636/dashboard  dashboard: route to the DCs, listeners, recent activity
+# http://127.0.0.1:8636/events     recent activity as JSON
+# Kept on 127.0.0.1 so it's only reachable on this server itself.
+# Account names in the dashboard/events are masked (j•••e@corp.example.com) unless
+# show_account_names = true. Masking happens in the proxy, so real names never
+# reach the browser while it's off. The log file always has the full names.
+[status]
+enabled = true
+bind = "127.0.0.1"
+port = 8636
+show_account_names = false
+event_history = 200          # recent events kept in memory for the dashboard
